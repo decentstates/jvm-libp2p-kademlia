@@ -5,11 +5,9 @@ import io.ipfs.multiaddr.*;
 import io.ipfs.multihash.*;
 import io.libp2p.core.*;
 import org.junit.*;
-import org.peergos.blockstore.*;
 import org.peergos.protocol.dht.*;
 
 import java.util.*;
-import java.util.concurrent.*;
 import java.util.function.*;
 import java.util.stream.*;
 
@@ -18,9 +16,8 @@ public class ProvideTest {
     @Test
     @Ignore // until we can figure out NAT traversal and get a public ip
     public void provideBlock() {
-        RamBlockstore blockstore = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), blockstore, (c, p, a) -> CompletableFuture.completedFuture(true));
+                new RamProviderStore(1000), new RamRecordStore());
         Host node1 = builder1.build();
         node1.start().join();
         Multihash node1Id = Multihash.deserialize(node1.getPeerId().getBytes());
@@ -52,9 +49,8 @@ public class ProvideTest {
                 throw new IllegalStateException("No connected peers!");
             dht.bootstrap(node1);
 
-            // publish a block
-            byte[] blockData = ("This is hopefully a unique block" + System.currentTimeMillis()).getBytes();
-            Cid block = blockstore.put(blockData, Cid.Codec.Raw).join();
+            // publish a block (use a well-known CID for testing purposes; this test is @Ignore)
+            Cid block = Cid.decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi");
             PeerAddresses ourAddresses = new PeerAddresses(node1Id, node1.listenAddresses().stream()
                     .collect(Collectors.toList()));
             dht.provideBlock(block, node1, ourAddresses).join();

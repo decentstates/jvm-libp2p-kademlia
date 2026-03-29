@@ -4,21 +4,18 @@ import io.ipfs.multihash.Multihash;
 import io.libp2p.core.*;
 import io.libp2p.core.multiformats.*;
 import org.junit.*;
-import org.peergos.blockstore.*;
 import org.peergos.protocol.*;
 import org.peergos.protocol.dht.*;
 
 import java.util.*;
-import java.util.concurrent.*;
 
 public class FindPeerTest {
 
     @Ignore
     @Test
     public void findLongRunningNode() {
-        RamBlockstore blockstore1 = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), blockstore1, (c, p, a) -> CompletableFuture.completedFuture(true));
+                new RamProviderStore(1000), new RamRecordStore());
         Host node1 = builder1.build();
         node1.start().join();
         IdentifyBuilder.addIdentifyProtocol(node1, Collections.emptyList());

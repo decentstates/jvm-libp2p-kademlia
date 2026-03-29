@@ -1,15 +1,10 @@
 package org.peergos.protocol.dht;
 
 import com.google.protobuf.*;
-import crypto.pb.*;
 import io.ipfs.multihash.*;
-import io.libp2p.core.crypto.*;
 import org.peergos.*;
 import org.peergos.protocol.dht.pb.*;
-import org.peergos.protocol.ipns.*;
-import org.peergos.protocol.ipns.pb.*;
 
-import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.*;
@@ -33,7 +28,6 @@ public interface KademliaController {
     default CompletableFuture<Boolean> provide(Multihash block, PeerAddresses us) {
         return send(Dht.Message.newBuilder()
                 .setType(Dht.Message.MessageType.ADD_PROVIDER)
-                // only provide the bare Multihash
                 .setKey(ByteString.copyFrom(block.bareMultihash().toBytes()))
                 .addAllProviderPeers(List.of(us.toProtobuf()))
                 .build());
@@ -47,26 +41,25 @@ public interface KademliaController {
                 .thenApply(Providers::fromProtobuf);
     }
 
-    default CompletableFuture<Boolean> putValue(Multihash peerId, byte[] value) {
-        byte[] ipnsRecordKey = IPNS.getKey(peerId);
+    default CompletableFuture<Boolean> putValue(byte[] key, byte[] value) {
         Dht.Message outgoing = Dht.Message.newBuilder()
                 .setType(Dht.Message.MessageType.PUT_VALUE)
-                .setKey(ByteString.copyFrom(ipnsRecordKey))
+                .setKey(ByteString.copyFrom(key))
                 .setRecord(Dht.Record.newBuilder()
-                        .setKey(ByteString.copyFrom(ipnsRecordKey))
+                        .setKey(ByteString.copyFrom(key))
                         .setValue(ByteString.copyFrom(value))
                         .build())
                 .build();
-        return rpc(outgoing).thenApply(reply -> reply.getKey().equals(outgoing.getKey()) &&
+        return rpc(outgoing).thenApply(reply ->
+                reply.getKey().equals(outgoing.getKey()) &&
                 reply.getRecord().getValue().equals(outgoing.getRecord().getValue()));
     }
 
-    default CompletableFuture<GetResult> getValue(Multihash peerId) {
-        byte[] ipnsRecordKey = IPNS.getKey(peerId);
+    default CompletableFuture<GetValueResult> getValue(byte[] key) {
         Dht.Message outgoing = Dht.Message.newBuilder()
                 .setType(Dht.Message.MessageType.GET_VALUE)
-                .setKey(ByteString.copyFrom(ipnsRecordKey))
+                .setKey(ByteString.copyFrom(key))
                 .build();
-        return rpc(outgoing).thenApply(GetResult::fromProtobuf);
+        return rpc(outgoing).thenApply(GetValueResult::fromProtobuf);
     }
 }

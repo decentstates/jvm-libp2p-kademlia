@@ -1,15 +1,17 @@
 package org.peergos.protocol.dht;
 
-import io.ipfs.multihash.*;
-import org.peergos.protocol.ipns.*;
+import java.util.Optional;
 
-import java.util.*;
-
+/**
+ * Stores arbitrary DHT records as raw bytes, keyed by raw bytes.
+ * The meaning of keys and values is determined by the application layer
+ * (e.g. IPNS uses /ipns/<peerId> keys and signed protobuf values).
+ */
 public interface RecordStore extends AutoCloseable {
 
-    void put(Multihash peerId, IpnsRecord record);
+    void put(byte[] key, byte[] value);
 
-    Optional<IpnsRecord> get(Multihash peerId);
+    Optional<byte[]> get(byte[] key);
 
-    void remove(Multihash peerId);
+    void remove(byte[] key);
 }

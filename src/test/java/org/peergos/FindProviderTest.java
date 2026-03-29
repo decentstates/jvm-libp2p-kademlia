@@ -5,11 +5,9 @@ import io.ipfs.multiaddr.*;
 import io.ipfs.multihash.*;
 import io.libp2p.core.*;
 import org.junit.*;
-import org.peergos.blockstore.*;
 import org.peergos.protocol.dht.*;
 
 import java.util.*;
-import java.util.concurrent.*;
 import java.util.function.*;
 import java.util.stream.*;
 
@@ -18,9 +16,8 @@ public class FindProviderTest {
     @Test
     @Ignore // TODO: Figure out why these get provider calls timeout
     public void findBlockProvider() {
-        RamBlockstore blockstore = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), blockstore, (c, p, a) -> CompletableFuture.completedFuture(true));
+                new RamProviderStore(1000), new RamRecordStore());
         Host node1 = builder1.build();
         node1.start().join();
 

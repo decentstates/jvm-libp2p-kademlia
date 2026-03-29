@@ -2,7 +2,6 @@ package org.peergos.protocol.dht;
 
 import com.google.protobuf.*;
 import com.offbynull.kademlia.*;
-import io.ipfs.cid.*;
 import io.ipfs.multihash.Multihash;
 import io.libp2p.core.*;
 import io.libp2p.core.Stream;
@@ -10,9 +9,7 @@ import io.libp2p.core.multiformats.*;
 import io.libp2p.core.multiformats.Protocol;
 import io.prometheus.client.*;
 import org.peergos.*;
-import org.peergos.blockstore.*;
 import org.peergos.protocol.dht.pb.*;
-import org.peergos.protocol.ipns.*;
 
 import java.io.*;
 import java.net.*;
@@ -30,9 +27,9 @@ public class KademliaEngine {
             .name("kademlia_responder_sent_bytes")
             .help("Total sent bytes in kademlia protocol responder")
             .register();
-    private static final Counter responderIpnsSentBytes = Counter.build()
-            .name("kademlia_responder_ipns_sent_bytes")
-            .help("Total sent bytes in kademlia ipns protocol responder")
+    private static final Counter responderValueSentBytes = Counter.build()
+            .name("kademlia_responder_value_sent_bytes")
+            .help("Total sent bytes in kademlia getValue protocol responder")
             .register();
     private static final Counter responderProvidersSentBytes = Counter.build()
             .name("kademlia_responder_providers_sent_bytes")
@@ -45,20 +42,31 @@ public class KademliaEngine {
 
     private static final int BUCKET_SIZE = 20;
     private final ProviderStore providersStore;
-    private final RecordStore ipnsStore;
+    private final RecordStore recordStore;
     public final Router router;
     private AddressBook addressBook;
     private final Multihash ourPeerId;
     private final byte[] ourPeerIdBytes;
-    private final Optional<Blockstore> blocks;
+    private final Optional<LocalContentStore> localContent;
+    private final Optional<RecordValidator> recordValidator;
 
-    public KademliaEngine(Multihash ourPeerId, ProviderStore providersStore, RecordStore ipnsStore, Optional<Blockstore> blocks) {
+    public KademliaEngine(Multihash ourPeerId,
+                          ProviderStore providersStore,
+                          RecordStore recordStore,
+                          Optional<LocalContentStore> localContent,
+                          Optional<RecordValidator> recordValidator) {
         this.providersStore = providersStore;
-        this.ipnsStore = ipnsStore;
+        this.recordStore = recordStore;
         this.ourPeerId = ourPeerId;
         this.ourPeerIdBytes = ourPeerId.toBytes();
         this.router = new Router(Id.create(ourPeerId.bareMultihash().toBytes(), 256), 2, 2, 2);
-        this.blocks = blocks;
+        this.localContent = localContent;
+        this.recordValidator = recordValidator;
+    }
+
+    /** Convenience constructor with no local content store and no record validation. */
+    public KademliaEngine(Multihash ourPeerId, ProviderStore providersStore, RecordStore recordStore) {
+        this(ourPeerId, providersStore, recordStore, Optional.empty(), Optional.empty());
     }
 
     public void setAddressBook(AddressBook addrs) {
@@ -98,52 +106,40 @@ public class KademliaEngine {
                     List<Multiaddr> addrs = new ArrayList<>(addressBook.getAddrs(PeerId.fromBase58(n.getLink())).join());
                     return new PeerAddresses(Multihash.fromBase58(n.getLink()), addrs);
                 })
-                .filter(p -> ! p.addresses.isEmpty())
+                .filter(p -> !p.addresses.isEmpty())
                 .collect(Collectors.toList());
-    }
-
-    public void addRecord(Multihash publisher, IpnsRecord record) {
-        ipnsStore.put(publisher, record);
-    }
-
-    public Optional<IpnsRecord> getRecord(Multihash publisher) {
-        return ipnsStore.get(publisher);
     }
 
     public void receiveRequest(Dht.Message msg, PeerId source, Stream stream) {
         responderReceivedBytes.inc(msg.getSerializedSize());
         switch (msg.getType()) {
             case PUT_VALUE: {
-                Optional<IpnsMapping> mapping = IPNS.parseAndValidateIpnsEntry(msg);
-                if (mapping.isPresent()) {
-                    Optional<IpnsRecord> existing = ipnsStore.get(mapping.get().publisher);
-                    if (existing.isPresent() && mapping.get().value.compareTo(existing.get()) < 0) {
-                        // don't add 'older' record
-                        return;
-                    }
-                    ipnsStore.put(mapping.get().publisher, mapping.get().value);
+                byte[] key = msg.getKey().toByteArray();
+                byte[] value = msg.getRecord().getValue().toByteArray();
+                boolean valid = recordValidator.map(v -> v.validate(key, value)).orElse(true);
+                if (valid) {
+                    recordStore.put(key, value);
                     stream.writeAndFlush(msg);
                     responderSentBytes.inc(msg.getSerializedSize());
                 }
                 break;
             }
             case GET_VALUE: {
-                Cid key = IPNS.getCidFromKey(msg.getKey());
-                Optional<IpnsRecord> ipnsRecord = ipnsStore.get(key);
-
+                byte[] key = msg.getKey().toByteArray();
+                Optional<byte[]> record = recordStore.get(key);
                 Dht.Message.Builder builder = msg.toBuilder();
-                if (ipnsRecord.isPresent())
+                if (record.isPresent())
                     builder = builder.setRecord(Dht.Record.newBuilder()
                             .setKey(msg.getKey())
-                            .setValue(ByteString.copyFrom(ipnsRecord.get().raw)).build());
-                builder = builder.addAllCloserPeers(getKClosestPeers(msg.getKey().toByteArray(), BUCKET_SIZE)
+                            .setValue(ByteString.copyFrom(record.get())).build());
+                builder = builder.addAllCloserPeers(getKClosestPeers(key, BUCKET_SIZE)
                         .stream()
                         .map(p -> p.toProtobuf(a -> isPublic(a)))
                         .collect(Collectors.toList()));
                 Dht.Message reply = builder.build();
                 stream.writeAndFlush(reply);
                 responderSentBytes.inc(reply.getSerializedSize());
-                responderIpnsSentBytes.inc(reply.getSerializedSize());
+                responderValueSentBytes.inc(reply.getSerializedSize());
                 break;
             }
             case ADD_PROVIDER: {
@@ -158,17 +154,22 @@ public class KademliaEngine {
             case GET_PROVIDERS: {
                 Multihash hash = Multihash.deserialize(msg.getKey().toByteArray());
                 Set<Dht.Message.Peer> providers = providersStore.getProviders(hash);
-                if (blocks.isPresent() && blocks.get().hasAny(hash).join()) {
-                    providers = new HashSet<>(providers);
-                    providers.add(new PeerAddresses(ourPeerId,
-                            addressBook.getAddrs(PeerId.fromBase58(ourPeerId.toBase58())).join()
-                                    .stream()
-                                    .filter(a -> isPublic(a))
-                                    .collect(Collectors.toList())).toProtobuf());
+                if (localContent.isPresent()) {
+                    try {
+                        if (localContent.get().has(hash)) {
+                            providers = new HashSet<>(providers);
+                            providers.add(new PeerAddresses(ourPeerId,
+                                    addressBook.getAddrs(PeerId.fromBase58(ourPeerId.toBase58())).join()
+                                            .stream()
+                                            .filter(a -> isPublic(a))
+                                            .collect(Collectors.toList())).toProtobuf());
+                        }
+                    } catch (Exception e) {
+                        // treat a failing store check as absent
+                    }
                 }
                 Dht.Message.Builder builder = msg.toBuilder();
-                builder = builder.addAllProviderPeers(providers.stream()
-                        .collect(Collectors.toList()));
+                builder = builder.addAllProviderPeers(providers.stream().collect(Collectors.toList()));
                 builder = builder.addAllCloserPeers(getKClosestPeers(msg.getKey().toByteArray(), BUCKET_SIZE)
                         .stream()
                         .map(p -> p.toProtobuf(a -> isPublic(a)))
@@ -184,13 +185,11 @@ public class KademliaEngine {
                 Multihash sourcePeer = Multihash.deserialize(source.getBytes());
                 byte[] target = msg.getKey().toByteArray();
                 if (Arrays.equals(target, ourPeerIdBytes)) {
-                    // Only return ourselves (without addresses) if they are querying for us
-                    // This is because all Go peers query for this to check live-ness
                     builder = builder.addCloserPeers(new PeerAddresses(ourPeerId, Collections.emptyList()).toProtobuf());
                 } else
                     builder = builder.addAllCloserPeers(getKClosestPeers(target, BUCKET_SIZE)
                             .stream()
-                            .filter(p -> ! p.peerId.equals(sourcePeer)) // don't tell a peer about themselves
+                            .filter(p -> !p.peerId.equals(sourcePeer))
                             .map(p -> p.toProtobuf(a -> isPublic(a)))
                             .collect(Collectors.toList()));
                 Dht.Message reply = builder.build();
@@ -199,8 +198,8 @@ public class KademliaEngine {
                 responderFindNodeSentBytes.inc(reply.getSerializedSize());
                 break;
             }
-            case PING: {break;} // Not used any more
-            default: throw new IllegalStateException("Unknown message kademlia type: " + msg.getType());
+            case PING: { break; } // Not used any more
+            default: throw new IllegalStateException("Unknown kademlia message type: " + msg.getType());
         }
         stream.close();
     }
@@ -208,7 +207,7 @@ public class KademliaEngine {
     public static boolean isPublic(Multiaddr addr) {
         try {
             List<MultiaddrComponent> parts = addr.getComponents();
-            for (MultiaddrComponent part: parts) {
+            for (MultiaddrComponent part : parts) {
                 if (part.getProtocol() == Protocol.IP6ZONE)
                     return true;
                 if (part.getProtocol() == Protocol.IP4 || part.getProtocol() == Protocol.IP6) {
