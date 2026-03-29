@@ -4,10 +4,10 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>io.libp2p</groupId>
-    <artifactId>kademlia-libp2p</artifactId>
+    <groupId>com.github.decentstates</groupId>
+    <artifactId>jvm-libp2p-kademlia</artifactId>
     <version>0.1.0</version>
-    <name>kademlia-libp2p</name>
+    <name>jvm-libp2p-kademlia</name>
     <description>Kademlia DHT for jvm-libp2p</description>
 
     <properties>
