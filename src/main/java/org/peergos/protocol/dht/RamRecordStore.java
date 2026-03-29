@@ -1,32 +1,33 @@
 package org.peergos.protocol.dht;
 
-import io.ipfs.multihash.*;
-import org.peergos.protocol.ipns.*;
-
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.Base64;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class RamRecordStore implements RecordStore {
 
-    private final Map<Multihash, IpnsRecord> records = new ConcurrentHashMap<>();
+    private final Map<String, byte[]> records = new ConcurrentHashMap<>();
 
-    @Override
-    public void put(Multihash peerId, IpnsRecord record) {
-        IpnsRecord existing = records.get(peerId);
-        if (existing == null || existing.compareTo(record) < 0)
-            records.put(peerId, record);
+    private String keyString(byte[] key) {
+        return Base64.getEncoder().encodeToString(key);
     }
 
     @Override
-    public Optional<IpnsRecord> get(Multihash peerId) {
-        return Optional.ofNullable(records.get(peerId));
+    public void put(byte[] key, byte[] value) {
+        records.put(keyString(key), value);
     }
 
     @Override
-    public void remove(Multihash peerId) {
-        records.remove(peerId);
+    public Optional<byte[]> get(byte[] key) {
+        return Optional.ofNullable(records.get(keyString(key)));
     }
 
     @Override
-    public void close() throws Exception {}
+    public void remove(byte[] key) {
+        records.remove(keyString(key));
+    }
+
+    @Override
+    public void close() {}
 }

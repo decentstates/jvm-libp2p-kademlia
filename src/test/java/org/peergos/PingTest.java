@@ -10,19 +10,16 @@ import io.libp2p.core.multistream.*;
 import io.libp2p.crypto.keys.*;
 import io.libp2p.protocol.*;
 import org.junit.*;
-import org.peergos.blockstore.*;
 import org.peergos.protocol.*;
-import org.peergos.protocol.bitswap.*;
 
 import java.util.*;
-import java.util.concurrent.*;
 
 public class PingTest {
 
     @Test
     public void runPing() {
-        Host node1 = HostBuilder.build(TestPorts.getPort(), List.of(new Ping(), new Bitswap(new BitswapEngine(new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), Bitswap.MAX_MESSAGE_SIZE))));
-        Host node2 = HostBuilder.build(TestPorts.getPort(), List.of(new Ping(), new Bitswap(new BitswapEngine(new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), Bitswap.MAX_MESSAGE_SIZE))));
+        Host node1 = HostBuilder.build(TestPorts.getPort(), List.of(new Ping()));
+        Host node2 = HostBuilder.build(TestPorts.getPort(), List.of(new Ping()));
         node1.start().join();
         node2.start().join();
         try {
@@ -54,12 +51,10 @@ public class PingTest {
     public void runPingEd25519ToRSA() {
         PrivKey node1Keys = Ed25519Kt.generateEd25519KeyPair().getFirst();
         int node1Port = TestPorts.getPort();
-        Host node1 = build(node1Keys, node1Port, List.of(new Ping(),
-                new Bitswap(new BitswapEngine(new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), Bitswap.MAX_MESSAGE_SIZE))));
+        Host node1 = build(node1Keys, node1Port, List.of(new Ping()));
         PrivKey node2Keys = RsaKt.generateRsaKeyPair(2048).getFirst();
         int node2Port = TestPorts.getPort();
-        Host node2 = build(node2Keys, node2Port, List.of(new Ping(),
-                new Bitswap(new BitswapEngine(new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), Bitswap.MAX_MESSAGE_SIZE))));
+        Host node2 = build(node2Keys, node2Port, List.of(new Ping()));
         node1.start().join();
         node2.start().join();
         IdentifyBuilder.addIdentifyProtocol(node1, Collections.emptyList());
@@ -84,8 +79,8 @@ public class PingTest {
 
     @Test
     public void replyIdentifyOnNewDial() {
-        Host node1 = HostBuilder.build(TestPorts.getPort(), List.of(new Ping(), new Bitswap(new BitswapEngine(new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), Bitswap.MAX_MESSAGE_SIZE))));
-        Host node2 = HostBuilder.build(TestPorts.getPort(), List.of(new Ping(), new Bitswap(new BitswapEngine(new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), Bitswap.MAX_MESSAGE_SIZE))));
+        Host node1 = HostBuilder.build(TestPorts.getPort(), List.of(new Ping()));
+        Host node2 = HostBuilder.build(TestPorts.getPort(), List.of(new Ping()));
         node1.start().join();
         IdentifyBuilder.addIdentifyProtocol(node1, Collections.emptyList());
         node2.start().join();

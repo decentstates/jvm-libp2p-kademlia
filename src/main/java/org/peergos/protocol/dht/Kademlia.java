@@ -4,7 +4,6 @@ import com.offbynull.kademlia.*;
 import io.ipfs.multiaddr.*;
 import io.ipfs.multihash.Multihash;
 import io.libp2p.core.*;
-import io.libp2p.core.crypto.*;
 import io.libp2p.core.multiformats.*;
 import io.libp2p.core.multiformats.Protocol;
 import io.libp2p.core.multistream.*;
@@ -12,12 +11,10 @@ import io.libp2p.etc.types.*;
 import io.libp2p.protocol.*;
 import org.peergos.*;
 import org.peergos.protocol.dnsaddr.*;
-import org.peergos.protocol.ipns.*;
 import org.peergos.util.Futures;
 import org.peergos.util.Logging;
 
 import java.nio.channels.ClosedChannelException;
-import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
@@ -80,6 +77,7 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
     }
 
     private AtomicBoolean running = new AtomicBoolean(false);
+
     public void startBootstrapThread(Host us) {
         running.set(true);
         new Thread(() -> {
@@ -88,7 +86,7 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
                     bootstrap(us);
                     Thread.sleep(BOOTSTRAP_PERIOD_MILLIS);
                 } catch (Libp2pException e) {
-                    if (! e.getMessage().contains("Transport is closed"))
+                    if (!e.getMessage().contains("Transport is closed"))
                         e.printStackTrace();
                 } catch (Throwable t) {
                     t.printStackTrace();
@@ -121,6 +119,7 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
             return false;
         }
     }
+
     public void bootstrap(Host us) {
         // lookup a random peer id
         byte[] hash = new byte[32];
@@ -136,7 +135,8 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
             if (connectTo(us, peer))
                 connected.add(peer.peerId);
         }
-        LOG.info("Bootstrap connected to " + connected.size() + " nodes close to us. " + connected.stream().map(Multihash::toString).sorted().limit(5).collect(Collectors.toList()));
+        LOG.info("Bootstrap connected to " + connected.size() + " nodes close to us. "
+                + connected.stream().map(Multihash::toString).sorted().limit(5).collect(Collectors.toList()));
 
         List<Connection> allConns = us.getNetwork().getConnections();
         Set<Connection> activeConns = us.getStreams().stream().map(s -> s.getConnection()).collect(Collectors.toSet());
@@ -187,6 +187,7 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
         byte[] key = peerIdkey.toBytes();
         return findClosestPeers(key, maxCount, us);
     }
+
     public List<PeerAddresses> findClosestPeers(byte[] key, int maxCount, Host us) {
         Id keyId = Id.create(Hash.sha256(key), 256);
         SortedSet<RoutingEntry> closest = Collections.synchronizedSortedSet(new TreeSet<>((a, b) -> compareKeys(a, b, keyId)));
@@ -207,7 +208,7 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
         int queryParallelism = 3;
         while (true) {
             List<RoutingEntry> thisRound = toQuery.stream()
-                    .filter(r -> hasTransportOverlap(r.addresses)) // don't waste time trying to dial nodes we can't
+                    .filter(r -> hasTransportOverlap(r.addresses))
                     .limit(queryParallelism)
                     .collect(Collectors.toList());
             List<Future<List<PeerAddresses>>> futures = thisRound.stream()
@@ -225,7 +226,6 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
                     List<PeerAddresses> result = future.get();
                     for (PeerAddresses peer : result) {
                         if (!queried.contains(peer.peerId)) {
-                            // exit early if we are looking for the specific node
                             if (maxCount == 1 && Arrays.equals(peer.peerId.toBytes(), key))
                                 return Collections.singletonList(peer);
                             queried.add(peer.peerId);
@@ -240,8 +240,7 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
                     // couldn't contact peer
                 }
             }
-            // if no new peers in top k were returned we are done
-            if (! foundCloser)
+            if (!foundCloser)
                 break;
         }
         return closest.stream()
@@ -298,15 +297,13 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
                         }
                     }
                 } catch (Exception e) {
-                    if (! (e.getCause() instanceof TimeoutException))
+                    if (!(e.getCause() instanceof TimeoutException))
                         e.printStackTrace();
                 }
             }
-            // if no new peers in top k were returned we are done
-            if (! foundCloser)
+            if (!foundCloser)
                 break;
         }
-
         return CompletableFuture.completedFuture(providers);
     }
 
@@ -318,14 +315,13 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
         } catch (Exception e) {
             if (e instanceof Libp2pException && e.getMessage().contains("Transport is closed"))
                 return CompletableFuture.completedFuture(Collections.emptyList());
-            // we can't dial quic only nodes until it's implemented
-            if (! quicEnabled && target.addresses.stream().allMatch(a -> a.toString().contains("quic")))
+            if (!quicEnabled && target.addresses.stream().allMatch(a -> a.toString().contains("quic")))
                 return CompletableFuture.completedFuture(Collections.emptyList());
             if (e instanceof NoSuchRemoteProtocolException || e.getCause() instanceof NoSuchRemoteProtocolException)
                 return CompletableFuture.completedFuture(Collections.emptyList());
-            if (e.getCause() instanceof NothingToCompleteException || e.getCause() instanceof NonCompleteException) {
+            if (e.getCause() instanceof NothingToCompleteException || e.getCause() instanceof NonCompleteException)
                 LOG.fine("Couldn't dial " + target.peerId + " addrs: " + target.addresses);
-            }  else if (e.getCause() instanceof TimeoutException)
+            else if (e.getCause() instanceof TimeoutException)
                 LOG.fine("Timeout dialing " + target.peerId + " addrs: " + target.addresses);
             else if (e.getCause() instanceof ConnectionClosedException) {}
             else if (e.getCause() instanceof ClosedChannelException) {}
@@ -344,7 +340,7 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
     private StreamPromise<? extends KademliaController> dialPeer(PeerAddresses target, Host us) {
         Multiaddr[] multiaddrs = target.addresses.stream()
                 .map(a -> Multiaddr.fromString(a.toString()))
-                .filter(a -> ! a.has(Protocol.DNS) && ! a.has(Protocol.DNS4) && ! a.has(Protocol.DNS6))
+                .filter(a -> !a.has(Protocol.DNS) && !a.has(Protocol.DNS4) && !a.has(Protocol.DNS6))
                 .collect(Collectors.toList()).toArray(new Multiaddr[0]);
         return dial(us, PeerId.fromBase58(target.peerId.toBase58()), multiaddrs);
     }
@@ -373,218 +369,11 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
         return CompletableFuture.allOf(provides.toArray(new CompletableFuture[0]));
     }
 
-    public CompletableFuture<Integer> publishIpnsValue(PrivKey priv,
-                                                       Multihash publisher,
-                                                       Multihash value,
-                                                       long sequence,
-                                                       Host us) {
-        int hours = 1;
-        LocalDateTime expiry = LocalDateTime.now().plusHours(hours);
-        long ttlNanos = hours * 3600_000_000_000L;
-        byte[] publishValue = ("/ipfs/" + value).getBytes();
-        byte[] signedRecord = IPNS.createSignedRecord(publishValue, expiry, sequence, ttlNanos, Optional.empty(), Optional.empty(), priv);
-        return publishValue(publisher, signedRecord, us);
-    }
-
-    private CompletableFuture<Boolean> putValue(Multihash publisher,
-                                                byte[] signedRecord,
-                                                PeerAddresses peer,
-                                                Host us) {
-        try {
-            StreamPromise<? extends KademliaController> conn = dialPeer(peer, us);
-            return closeAfter(conn.getStream(), () -> conn.getController().join()
-                    .putValue(publisher, signedRecord));
-        } catch (Exception e) {}
-        return CompletableFuture.completedFuture(false);
-    }
-
     private boolean hasTransportOverlap(PeerAddresses p) {
         return p.addresses.stream()
                 .anyMatch(a -> (
                         (tcpEnabled && a.has(Protocol.TCP)) ||
-                        (quicEnabled && a.has(Protocol.QUICV1)) && ! a.has(Protocol.WEBTRANSPORT)) &&
-                        ! a.has(Protocol.P2PCIRCUIT));
-    }
-
-    public CompletableFuture<Integer> publishValue(Multihash publisher,
-                                                   byte[] signedRecord,
-                                                   Host us) {
-        byte[] key = IPNS.getKey(publisher);
-        Optional<IpnsMapping> parsed = IPNS.parseAndValidateIpnsEntry(key, signedRecord);
-        if (parsed.isEmpty() || !parsed.get().publisher.equals(publisher))
-            throw new IllegalStateException("Tried to publish invalid INS record for " + publisher);
-        Optional<IpnsRecord> existing = engine.getRecord(publisher);
-        // don't overwrite 'newer' record
-        if (existing.isEmpty() || parsed.get().value.compareTo(existing.get()) > 0) {
-            engine.addRecord(publisher, parsed.get().value);
-        }
-
-        Set<Multihash> publishes = Collections.synchronizedSet(new HashSet<>());
-        int minPublishes = 30;
-
-        Id keyId = Id.create(Hash.sha256(key), 256);
-        SortedSet<RoutingEntry> toQuery = new TreeSet<>((a, b) -> compareKeys(a, b, keyId));
-        List<PeerAddresses> localClosest = engine.getKClosestPeers(key, minPublishes);
-        int queryParallelism = 3;
-        toQuery.addAll(localClosest.stream()
-                .limit(queryParallelism)
-                .map(p -> new RoutingEntry(Id.create(Hash.sha256(p.peerId.toBytes()), 256), p))
-                .collect(Collectors.toList()));
-        Set<Multihash> queried = Collections.synchronizedSet(new HashSet<>());
-        while (! toQuery.isEmpty()) {
-            if (! running.get())
-                return Futures.of(0);
-            int remaining = toQuery.size() - 3;
-            List<RoutingEntry> thisRound = toQuery.stream()
-                    .filter(r -> hasTransportOverlap(r.addresses)) // don't waste time trying to dial nodes we can't
-                    .limit(queryParallelism)
-                    .collect(Collectors.toList());
-            List<? extends CompletableFuture<List<RoutingEntry>>> futures = thisRound.stream()
-                    .map(r -> {
-                        toQuery.remove(r);
-                        queried.add(r.addresses.peerId);
-                        return CompletableFuture.supplyAsync(() -> getCloserPeers(key, r.addresses, us).thenApply(res -> {
-                            List<RoutingEntry> more = new ArrayList<>();
-                            for (PeerAddresses peer : res) {
-                                if (! queried.contains(peer.peerId)) {
-                                    Id peerKey = Id.create(Hash.sha256(IPNS.getKey(peer.peerId)), 256);
-                                    RoutingEntry e = new RoutingEntry(peerKey, peer);
-                                    more.add(e);
-                                }
-                            }
-                            CompletableFuture.supplyAsync(() -> putValue(publisher, signedRecord, r.addresses, us)
-                                    .thenAccept(done -> {
-                                        if (done)
-                                            publishes.add(r.addresses.peerId);
-                                    }), ioExec);
-                            return more;
-                        }).join(), ioExec);
-                    })
-                    .collect(Collectors.toList());
-            futures.forEach(f -> {
-                try {
-                    if (publishes.size() >= minPublishes)
-                        return;
-                    toQuery.addAll(f.orTimeout(2, TimeUnit.SECONDS).join());
-                } catch (Exception e) {}
-            });
-            // exit early if we have enough results
-            if (publishes.size() >= minPublishes)
-                break;
-            if (toQuery.size() == remaining) {
-                // publish to closest remaining nodes
-                if (publishes.size() > 0)
-                    System.out.println("Publishing to further nodes, so far only " + publishes.size());
-                while (publishes.size() < minPublishes && !toQuery.isEmpty()) {
-                    if (! running.get())
-                        return Futures.of(0);
-                    List<RoutingEntry> closest = toQuery.stream()
-                    .limit(minPublishes - publishes.size() + 5)
-                    .collect(Collectors.toList());
-                    List<? extends CompletableFuture<?>> lastFutures = closest.stream()
-                            .map(r -> {
-                                toQuery.remove(r);
-                                queried.add(r.addresses.peerId);
-                                return CompletableFuture.supplyAsync(() -> putValue(publisher, signedRecord, r.addresses, us)
-                                        .thenAccept(done -> {
-                                            if (done)
-                                                publishes.add(r.addresses.peerId);
-                                        }), ioExec);
-                            })
-                            .collect(Collectors.toList());
-                    lastFutures.forEach(f -> {
-                        try {
-                            f.orTimeout(2, TimeUnit.SECONDS).join();
-                        } catch (Exception e) {}
-                    });
-                }
-                break;
-            }
-        }
-        return CompletableFuture.completedFuture(publishes.size());
-    }
-
-    public CompletableFuture<String> resolveIpnsValue(Multihash publisher, Host us, int minResults) {
-        List<IpnsRecord> candidates = resolveValue(publisher, minResults, us);
-        List<IpnsRecord> records = candidates.stream().sorted().collect(Collectors.toList());
-        if (records.isEmpty())
-            return CompletableFuture.failedFuture(new IllegalStateException("Couldn't find IPNS value for " + publisher));
-        return CompletableFuture.completedFuture(new String(records.get(records.size() - 1).value));
-    }
-
-    private CompletableFuture<Optional<GetResult>> getValueFromPeer(PeerAddresses peer, Multihash publisher, Host us) {
-        try {
-            StreamPromise<? extends KademliaController> conn = dialPeer(peer, us);
-            return conn
-                    .getController()
-                    .orTimeout(1, TimeUnit.SECONDS)
-                    .join()
-                    .getValue(publisher)
-                    .orTimeout(1, TimeUnit.SECONDS)
-                    .thenApply(x -> {
-                        conn.getStream().thenApply(s -> s.close());
-                        return x;
-                    })
-                    .thenApply(Optional::of);
-        } catch (Exception e) {
-            return CompletableFuture.completedFuture(Optional.empty());
-        }
-    }
-    public List<IpnsRecord> resolveValue(Multihash publisher, int minResults, Host us) {
-        byte[] key = IPNS.getKey(publisher);
-        List<IpnsRecord> candidates = Collections.synchronizedList(new ArrayList<>());
-        Optional<IpnsRecord> local = engine.getRecord(publisher);
-        local.ifPresent(candidates::add);
-
-        Id keyId = Id.create(Hash.sha256(key), 256);
-        SortedSet<RoutingEntry> toQuery = Collections.synchronizedSortedSet(new TreeSet<>((a, b) -> compareKeys(a, b, keyId)));
-        List<PeerAddresses> localClosest = engine.getKClosestPeers(key, 20);
-        int queryParallelism = 3;
-        toQuery.addAll(localClosest.stream()
-                .filter(p -> hasTransportOverlap(p)) // don't waste time trying to dial nodes we can't
-                .map(p -> new RoutingEntry(Id.create(Hash.sha256(p.peerId.toBytes()), 256), p))
-                .collect(Collectors.toList()));
-        Set<Multihash> queried = Collections.synchronizedSet(new HashSet<>());
-        int countdown = 20;
-        while (! toQuery.isEmpty()) {
-            int remaining = toQuery.size() - 3;
-            List<RoutingEntry> thisRound = toQuery.stream()
-                    .limit(queryParallelism)
-                    .collect(Collectors.toList());
-            List<CompletableFuture<CompletableFuture<Void>>> futures = thisRound.stream()
-                    .map(r -> {
-                        toQuery.remove(r);
-                        queried.add(r.addresses.peerId);
-                        return CompletableFuture.supplyAsync(() -> getValueFromPeer(r.addresses, publisher, us).thenAccept(get ->
-                                get.ifPresent(g -> {
-                                    if (g.record.isPresent() && g.record.get().publisher.equals(publisher))
-                                        candidates.add(g.record.get().value);
-                                    for (PeerAddresses peer : g.closerPeers) {
-                                        if (!queried.contains(peer.peerId) && hasTransportOverlap(peer)) {
-                                            Id peerKey = Id.create(Hash.sha256(IPNS.getKey(peer.peerId)), 256);
-                                            RoutingEntry e = new RoutingEntry(peerKey, peer);
-                                            toQuery.add(e);
-                                        }
-                                    }
-                                })), ioExec);
-                    })
-                    .collect(Collectors.toList());
-            futures.forEach(f -> {
-                try {
-                    if (candidates.size() >= minResults)
-                        return;
-                    f.orTimeout(5, TimeUnit.SECONDS).join()
-                            .orTimeout(5, TimeUnit.SECONDS).join();
-                } catch (Exception e) {}
-            });
-            // exit early if we have enough results
-            if (candidates.size() >= minResults)
-                break;
-            if (toQuery.size() == remaining)
-                countdown--;
-            if (countdown <= 0)
-                break;
-        }
-        return candidates;
+                        (quicEnabled && a.has(Protocol.QUICV1)) && !a.has(Protocol.WEBTRANSPORT)) &&
+                        !a.has(Protocol.P2PCIRCUIT));
     }
 }
